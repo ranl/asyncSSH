@@ -174,11 +174,12 @@ class asyncSSH():
             if self._ssh('[ -f "{0}" ]'.format(lock))['exit'] == 0:
                 ret['msg'] = 'ERROR: the remote script ended with an error !'
                 ret['result'] = False
+             else:
+                ret['msg'] = 'the remote script finished successfully !'
         else:
             ret['msg'] = 'ERROR: the remote script didn\'t finish after {0} seconds'.format(numOfChecks*sleepBetweenCheck)
             ret['result'] = False
         
-        ret['msg'] = 'the remote script finished successfully !'
         return ret
     
     def sendCommand(self, script, args=[], sleepBetweenCheck=60, numOfChecks=5, log=''):
