@@ -126,12 +126,13 @@ class asyncSSH():
             string = string + '"'
         return string
     
-    def _generateRemoteScript(self, script, args, lock):
+    def _generateRemoteScript(self, script, args):
         normArgs = ''
         for string in args:
             normArgs += ' ' + self._normalizeString(string)
         fh = tempfile.NamedTemporaryFile()
         filename = os.path.abspath(fh.name)
+        lock = '/tmp/{0}.lock'.format(os.path.basename(fh.name))
         
         fh.write('#!/bin/bash\n')
         fh.write('touch "{0}"\n'.format(lock))
@@ -147,7 +148,7 @@ class asyncSSH():
             raise Exception( 'Error scping {0}\n{1}'.format(filename,scpRet) )
         self._ssh('chmod +x "{0}"'.format(filename))
         
-        return filename
+        return (filename, lock)
     
     def _waitForPid(self, pid, lock, sleepBetweenCheck, numOfChecks):
         ret = {
@@ -183,8 +184,7 @@ class asyncSSH():
         return ret
     
     def sendCommand(self, script, args=[], sleepBetweenCheck=60, numOfChecks=5, log=''):
-        lock = '/tmp/{0}.lock'.format(os.path.basename(script))
-        remoteScript = self._generateRemoteScript(script, args, lock)
+        (remoteScript, lock) = self._generateRemoteScript(script, args)
         if not log:
             log = '/tmp/{0}.log'.format(os.path.basename(remoteScript))
         
