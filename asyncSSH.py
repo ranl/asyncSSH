@@ -17,31 +17,6 @@ import shutil
 import time
 from optparse import OptionParser
 
-def prepareOpts():
-    '''
-    Parse option from the shell
-    '''
-    
-    def err( string ):
-        print 'Error: {0}'.format( string )
-        parser.print_help()
-        print __doc__
-        exit(1)
-    
-    parser = OptionParser()
-    parser.add_option('-t', '--target', dest='target', type='string', help='remote host ip / fqdn')
-    parser.add_option('-k', '--key', dest='key', type='string', help='ssh private key')
-    parser.add_option('-p', '--port', dest='port', type='int', help='ssh port', default=22)
-    parser.add_option('-u', '--user', dest='user', type='string', help='ssh username', default='root')
-    parser.add_option('-i', '--interval', dest='interval', type='int', help='how many times we should wait for the script to end', default=5)
-    parser.add_option('-s', '--sleep', dest='sleep', type='int', help='how many seconds to wait in each interval', default=60)
-    (opts, args) = parser.parse_args()
-    
-    if not args:
-        err('missing command to execute !')
-    command = args.pop(0)
-    
-    return (opts, command, args)
 
 class asyncSSH():
     
@@ -113,23 +88,23 @@ class asyncSSH():
         )
         return self._shell(command)
     
-    def _sshPing(self):
+    def _ssh_ping(self):
         return self._ssh('hostname')['exit'] == 0
     
-    def _sshProcPing(self, pid):
+    def _ssh_proc_ping(self, pid):
         return self._ssh('ps -p {0}'.format(pid))['exit'] == 0
     
-    def _normalizeString(self, string):
+    def _normalize_string(self, string):
         if not string.startswith('"'):
             string = '"' + string
         if not string.endswith('"'):
             string = string + '"'
         return string
     
-    def _generateRemoteScript(self, script, args):
+    def _generate_remote_script(self, script, args):
         normArgs = ''
         for string in args:
-            normArgs += ' ' + self._normalizeString(string)
+            normArgs += ' ' + self._normalize_string(string)
         fh = tempfile.NamedTemporaryFile()
         filename = os.path.abspath(fh.name)
         lock = '/tmp/{0}.lock'.format(os.path.basename(fh.name))
@@ -150,22 +125,22 @@ class asyncSSH():
         
         return (filename, lock)
     
-    def _waitForPid(self, pid, lock, sleepBetweenCheck, numOfChecks):
+    def _wait_for_pid(self, pid, lock, sleepBetweenCheck, numOfChecks):
         ret = {
                'result': True,
                'msg': ''
                }
         counter=numOfChecks
         time.sleep(1)
-        scriptRunning=self._sshProcPing(pid)
+        scriptRunning=self._ssh_proc_ping(pid)
         while counter > 0 and scriptRunning:
              counter += -1
              time.sleep(sleepBetweenCheck)
-             if not self._sshPing():
+             if not self._ssh_ping():
                  print 'error sshing into {0}, waiting another {1} seconds'.format(self.host, sleepBetweenCheck)
                  continue
              
-             if self._sshProcPing(pid):
+             if self._ssh_proc_ping(pid):
                  print 'remote script is still running with pid={0}'.format(pid)
              else:
                  print 'remote script ended, pid no longer exists'
@@ -182,40 +157,84 @@ class asyncSSH():
             ret['result'] = False
         
         return ret
-    
-    def sendCommand(self, script, args=[], sleepBetweenCheck=60, numOfChecks=5, log=''):
-        (remoteScript, lock) = self._generateRemoteScript(script, args)
+
+    def _get_script_output(self, log):
+        '''
+        Get the output of the remote script after execution
+        '''
+
+        return self._ssh('cat "{0}"'.format(log))['out']
+
+    def send_command(self, script, args=[], sleepBetweenCheck=60, numOfChecks=5, log=''):
+        (remoteScript, lock) = self._generate_remote_script(script, args)
         if not log:
             log = '/tmp/{0}.log'.format(os.path.basename(remoteScript))
         
         compiledCommand = 'nohup "{0}" < /dev/null &> {1} & echo $!'.format(
-                                                                          remoteScript,
-                                                                          log,
-                                                                          )
+              remoteScript,
+              log,
+          )
         print 'Send command {0} with args {1} to {2} via {3}'.format(
-                                                                     script,
-                                                                     args,
-                                                                     self.host,
-                                                                     remoteScript
-                                                                     )
+            script,
+            args,
+            self.host,
+            remoteScript
+        )
         pid = int(self._ssh(compiledCommand)['out'][0])
-        watcherResult = self._waitForPid(pid, lock, sleepBetweenCheck, numOfChecks)
+        watcherResult = self._wait_for_pid(
+            pid, lock, sleepBetweenCheck, numOfChecks
+        )
         
-        print watcherResult['msg'] 
-        print 'check out the log file {0} for debugging'.format(log)
+        print watcherResult['msg']
+        print '############################'
+        print '### remote script output ###'
+        print '############################'
+        print '\n'.join(
+            self._get_script_output(log)
+        )
+
         if watcherResult['result']:
             self._ssh('rm -f "{0}"'.format(remoteScript))
+            self._ssh('rm -f "{0}"'.format(log))
+
         return watcherResult['result']
-    
+
+    @staticmethod
+    def prepare_opts():
+        '''
+        Parse option from the shell
+        '''
+
+        def err( string ):
+            print 'Error: {0}'.format( string )
+            parser.print_help()
+            print __doc__
+            exit(1)
+
+        parser = OptionParser()
+        parser.add_option('-t', '--target', dest='target', type='string', help='remote host ip / fqdn')
+        parser.add_option('-k', '--key', dest='key', type='string', help='ssh private key')
+        parser.add_option('-p', '--port', dest='port', type='int', help='ssh port', default=22)
+        parser.add_option('-u', '--user', dest='user', type='string', help='ssh username', default='root')
+        parser.add_option('-i', '--interval', dest='interval', type='int', help='how many times we should wait for the script to end', default=5)
+        parser.add_option('-s', '--sleep', dest='sleep', type='int', help='how many seconds to wait in each interval', default=60)
+        (opts, args) = parser.parse_args()
+
+        if not args:
+            err('missing command to execute !')
+        command = args.pop(0)
+
+        return (opts, command, args)
+
     @staticmethod
     def main():
         '''
         Main function
         '''
         
-        (opts, command, args) = prepareOpts()
+        (opts, command, args) = asyncSSH.prepare_opts()
         assh = asyncSSH(opts.target, opts.key, opts.port, opts.user)
-        ret = assh.sendCommand(command, args, opts.sleep, opts.interval)
+        ret = assh.send_command(command, args, opts.sleep, opts.interval)
         if not ret:
             exit(1)
         exit(0)
